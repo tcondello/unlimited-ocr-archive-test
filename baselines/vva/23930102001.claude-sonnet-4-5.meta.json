@@ -1,0 +1,14 @@
+{
+  "item_number": "23930102001",
+  "collection": "2393",
+  "engine": "claude_vision",
+  "n_pages": 3,
+  "elapsed_s": 56.7,
+  "est_cost_usd": 0.04011,
+  "char_count": 5157,
+  "source_title": "Letter from Stephen B. Wright to Mom - re: LBJ and McCarthy",
+  "source_pdf": "data/archive/vva/2393/23930102001.pdf",
+  "model": "claude-sonnet-4-5",
+  "input_tokens": 6901,
+  "output_tokens": 1294
+}

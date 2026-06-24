@@ -1,0 +1,14 @@
+{
+  "item_number": "2710101001",
+  "collection": "271",
+  "engine": "claude_vision",
+  "n_pages": 2,
+  "elapsed_s": 12.71,
+  "est_cost_usd": 0.01433,
+  "char_count": 794,
+  "source_title": "Post Card From Dan Siewert - 2 July 1966",
+  "source_pdf": "data/archive/vva/271/2710101001.pdf",
+  "model": "claude-sonnet-4-5",
+  "input_tokens": 3352,
+  "output_tokens": 285
+}
