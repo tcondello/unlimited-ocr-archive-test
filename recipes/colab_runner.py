@@ -47,13 +47,17 @@ WORK_DIR = "/content/unlimited-ocr-archive-test"
 OCR_DEPS = [
     "torch>=2.4",
     "torchvision",
-    "transformers>=4.49",
+    # Unlimited-OCR's bundled modeling code is written against transformers
+    # 4.57.1 — newer versions removed `is_torch_fx_available`. Pin exactly
+    # to match the model card; relax only if a later release re-adds that
+    # symbol or the model bumps its expected transformers.
+    "transformers==4.57.1",
     "accelerate>=0.30",
     "Pillow",
     "pymupdf",
     "python-dotenv",
-    # Unlimited-OCR's custom modeling code (trust_remote_code=True) imports these
-    # directly; they're listed in the model-card requirements.txt.
+    # Unlimited-OCR's custom modeling code (trust_remote_code=True) imports
+    # these directly; they're listed in the model-card requirements.txt.
     "addict",
     "easydict",
     "einops",

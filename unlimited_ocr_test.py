@@ -3,7 +3,10 @@
 # dependencies = [
 #   "torch>=2.4",
 #   "torchvision",
-#   "transformers>=4.49",
+#   # Unlimited-OCR's bundled modeling code uses `is_torch_fx_available`,
+#   # which was removed after transformers 4.57.x. Pin exactly to the
+#   # model card's version.
+#   "transformers==4.57.1",
 #   "Pillow",
 #   "einops",
 #   "addict",
