@@ -52,6 +52,13 @@ OCR_DEPS = [
     "Pillow",
     "pymupdf",
     "python-dotenv",
+    # Unlimited-OCR's custom modeling code (trust_remote_code=True) imports these
+    # directly; they're listed in the model-card requirements.txt.
+    "addict",
+    "easydict",
+    "einops",
+    "matplotlib",
+    "psutil",
 ]
 
 
@@ -100,7 +107,8 @@ def _ensure_deps() -> None:
         [
             sys.executable,
             "-c",
-            "import torch, transformers, accelerate, fitz, PIL, dotenv",
+            "import torch, transformers, accelerate, fitz, PIL, dotenv, "
+            "addict, easydict, einops, matplotlib, psutil",
         ],
         capture_output=True,
         text=True,

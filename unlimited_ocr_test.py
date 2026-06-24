@@ -8,6 +8,8 @@
 #   "einops",
 #   "addict",
 #   "easydict",
+#   "matplotlib",
+#   "psutil",
 #   "pymupdf",
 #   "accelerate",
 #   "rich",
