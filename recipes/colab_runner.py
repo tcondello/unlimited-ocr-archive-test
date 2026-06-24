@@ -56,9 +56,25 @@ OCR_DEPS = [
 
 
 def _run(cmd: list[str], cwd: str | None = None, check: bool = True) -> int:
-    """Run a command, streaming stdout/stderr, returning the exit code."""
+    """Run a command, streaming stdout/stderr line-by-line, returning the exit code.
+
+    Colab's IPython kernel doesn't reliably surface a subprocess's inherited
+    stdout/stderr, so we pipe explicitly and forward each line. This keeps
+    OCR-script progress and tracebacks visible in the colab-hf-run stream.
+    """
     print(f"\n$ {' '.join(cmd)}", flush=True)
-    proc = subprocess.run(cmd, cwd=cwd)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+    proc.wait()
     if check and proc.returncode != 0:
         raise SystemExit(
             f"command failed (exit {proc.returncode}): {' '.join(cmd)}"
