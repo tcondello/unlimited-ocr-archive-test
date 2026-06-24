@@ -1,18 +1,16 @@
 """
 compare.py — Build outputs/comparison.md from baselines/ + outputs/.
 
-Reads each pair of (Unlimited-OCR output, baseline output) and writes a
-single markdown file with:
+Three engines per document:
 
-  - per-doc table of char_count + elapsed_s for each engine
-  - side-by-side excerpts (first ~600 chars) so a reader can eyeball
-    quality without running anything
+  - VVA docs:        Unlimited-OCR | NuExtract 3 | Claude Sonnet 4.5 (baseline)
+  - ASYOUWERE docs:  Unlimited-OCR | NuExtract 3 | docling           (baseline)
 
-Engines compared:
-  - VVA docs:        Unlimited-OCR vs Claude Sonnet 4.5 vision
-  - ASYOUWERE docs:  Unlimited-OCR vs docling
+For each doc, writes a side-by-side stats table (chars, elapsed, pages,
+notes) followed by 600-char excerpts so the diff is eyeballable without
+running anything. Tolerant of missing engines — runs report what's present.
 
-Run after unlimited_ocr_test.py has populated outputs/:
+Run after unlimited_ocr_test.py / nuextract3_test.py have populated outputs/:
     uv run compare.py
 """
 from __future__ import annotations
@@ -28,6 +26,13 @@ BASELINE_ENGINES = {
     "asyouwere": "docling",
 }
 
+# (display label, file suffix, location root)
+ENGINE_LAYOUT = [
+    ("Unlimited-OCR", "unlimited-ocr", "outputs"),
+    ("NuExtract 3", "nuextract3", "outputs"),
+    # baseline injected per-src below (different suffix per src)
+]
+
 
 def read_or_none(path: Path) -> str | None:
     return path.read_text(errors="replace") if path.exists() else None
@@ -38,44 +43,59 @@ def excerpt(text: str, n: int = 600) -> str:
     return text if len(text) <= n else text[:n].rstrip() + " …"
 
 
+def engines_for(src: str) -> list[tuple[str, str, str]]:
+    """Return list of (label, suffix, root) for this source."""
+    engines = list(ENGINE_LAYOUT)
+    baseline = BASELINE_ENGINES[src]
+    engines.append((baseline, baseline, "baselines"))
+    return engines
+
+
+def load_engine(src: str, stem: str, suffix: str, root: str) -> tuple[str | None, dict]:
+    txt = read_or_none(ROOT / root / src / f"{stem}.{suffix}.txt")
+    meta_path = ROOT / root / src / f"{stem}.{suffix}.meta.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    return txt, meta
+
+
+def notes_for(label: str, meta: dict) -> str:
+    bits: list[str] = []
+    if "mode" in meta:
+        bits.append(f"mode={meta['mode']}")
+    if "dtype" in meta:
+        bits.append(f"dtype={meta['dtype']}")
+    if meta.get("est_cost_usd"):
+        bits.append(f"~${meta['est_cost_usd']}")
+    if "model" in meta and meta["model"] not in label:
+        bits.append(meta["model"].split("/")[-1])
+    return ", ".join(bits) if bits else "—"
+
+
 def doc_block(src: str, stem: str) -> str:
-    baseline_eng = BASELINE_ENGINES[src]
-    u_txt = read_or_none(ROOT / "outputs" / src / f"{stem}.unlimited-ocr.txt")
-    u_meta_path = ROOT / "outputs" / src / f"{stem}.unlimited-ocr.meta.json"
-    u_meta = json.loads(u_meta_path.read_text()) if u_meta_path.exists() else {}
+    engines = engines_for(src)
+    rows: list[tuple[str, str | None, dict]] = []
+    for label, suffix, root in engines:
+        txt, meta = load_engine(src, stem, suffix, root)
+        rows.append((label, txt, meta))
 
-    b_txt = read_or_none(ROOT / "baselines" / src / f"{stem}.{baseline_eng}.txt")
-    b_meta_path = ROOT / "baselines" / src / f"{stem}.{baseline_eng}.meta.json"
-    b_meta = json.loads(b_meta_path.read_text()) if b_meta_path.exists() else {}
-
-    lines: list[str] = []
-    lines.append(f"### `{src}/{stem}.pdf`\n")
-
+    lines: list[str] = [f"### `{src}/{stem}.pdf`\n"]
     lines.append("| Engine | chars | elapsed (s) | pages | notes |")
     lines.append("|---|---:|---:|---:|---|")
-    lines.append(
-        f"| **Unlimited-OCR** | {u_meta.get('char_count', '—')} "
-        f"| {u_meta.get('elapsed_s', '—')} "
-        f"| {u_meta.get('n_pages', '—')} "
-        f"| mode={u_meta.get('mode', '—')} |"
-    )
-    lines.append(
-        f"| {baseline_eng} | {b_meta.get('char_count', len(b_txt) if b_txt else '—')} "
-        f"| {b_meta.get('elapsed_s', '—')} "
-        f"| {b_meta.get('n_pages', '—')} "
-        f"| {'cost ≈ $' + str(b_meta.get('est_cost_usd')) if b_meta.get('est_cost_usd') else '—'} |"
-    )
+    for label, txt, meta in rows:
+        char_count = meta.get("char_count", len(txt) if txt else "—")
+        lines.append(
+            f"| **{label}** | {char_count} "
+            f"| {meta.get('elapsed_s', '—')} "
+            f"| {meta.get('n_pages', '—')} "
+            f"| {notes_for(label, meta)} |"
+        )
     lines.append("")
 
-    lines.append(f"<details><summary>Unlimited-OCR excerpt</summary>\n")
-    lines.append("```")
-    lines.append(excerpt(u_txt or "(no output yet — run unlimited_ocr_test.py first)"))
-    lines.append("```\n</details>\n")
-
-    lines.append(f"<details><summary>{baseline_eng} excerpt</summary>\n")
-    lines.append("```")
-    lines.append(excerpt(b_txt or "(no baseline file)"))
-    lines.append("```\n</details>\n")
+    for label, txt, _meta in rows:
+        lines.append(f"<details><summary>{label} excerpt</summary>\n")
+        lines.append("```")
+        lines.append(excerpt(txt or "(no output yet — run the matching script)"))
+        lines.append("```\n</details>\n")
 
     return "\n".join(lines)
 
@@ -86,13 +106,12 @@ def main() -> int:
         for pdf in sorted((ROOT / "docs" / src).glob("*.pdf")):
             docs.append((src, pdf.stem))
 
-    out: list[str] = []
-    out.append("# OCR comparison — Unlimited-OCR vs prior baselines\n")
-    out.append(
-        "Auto-generated by `compare.py`. Each doc shows side-by-side stats and "
-        "the first ~600 chars of each engine's output for fast visual diffing."
-    )
-    out.append("")
+    out: list[str] = [
+        "# OCR comparison — Unlimited-OCR vs NuExtract 3 vs prior baselines\n",
+        "Auto-generated by `compare.py`. Each doc shows a side-by-side stats "
+        "table and the first ~600 chars of each engine's output for fast "
+        "visual diffing.\n",
+    ]
 
     for src, stem in docs:
         out.append(doc_block(src, stem))

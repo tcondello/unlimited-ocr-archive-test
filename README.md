@@ -1,8 +1,8 @@
 # unlimited-ocr-archive-test
 
-> Putting Baidu's [Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) — a 3B vision-language model released this month — against the OCR engines I've been using on real archival documents: a handwritten 1966 Vietnam-era postcard, a typed 1968 letter, and two pages of a 1919 U.S. Army hospital newspaper.
+> Putting Baidu's [Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) — a 3B vision-language model released this month — against the engines I've been using on real archival documents: NuMind's [NuExtract 3](https://huggingface.co/numind/NuExtract3) (my default open-weights extractor), plus the API-grade baselines from prior runs (Claude Sonnet 4.5 vision for Vietnam-era handwritten material, docling for newsprint).
 
-Four documents, three engines, one repo. Clone, run on a GPU, eyeball the diffs.
+Four documents, three engines per doc, one repo. Clone, run on a GPU, eyeball the diffs.
 
 ## What's in here
 
@@ -20,11 +20,15 @@ baselines/                               # OCR I already ran with other engines
   asyouwere/*.docling.{txt,md}           # docling (the IBM document conversion pipeline)
 
 unlimited_ocr_test.py                    # Runs Unlimited-OCR over docs/, writes outputs/
+nuextract3_test.py                       # Runs NuExtract 3 over docs/, writes outputs/
 compare.py                               # Builds outputs/comparison.md from baselines/ + outputs/
 
-outputs/                                 # Populated by unlimited_ocr_test.py
+outputs/                                 # Populated by the two test scripts
   vva/*.unlimited-ocr.{txt,meta.json}
+  vva/*.nuextract3.{txt,meta.json}
   asyouwere/*.unlimited-ocr.{txt,meta.json}
+  asyouwere/*.nuextract3.{txt,meta.json}
+  _raw/                                  # Audit trail — raw model output before parsing
   comparison.md                          # Side-by-side table + excerpts
   summary.json                           # All metadata in one place
 ```
@@ -44,21 +48,21 @@ The Vietnam-era docs come from a [larger archive-OCR pipeline](https://github.co
 
 ## Run it
 
-**Requirements:** NVIDIA GPU with BF16 support (Colab T4 is enough — the model is 3B), Python 3.10+, [uv](https://docs.astral.sh/uv/).
+**Requirements:** NVIDIA GPU (Colab T4 is enough — Unlimited-OCR is 3B BF16, NuExtract 3 is 4B and runs in fp16 on T4), Python 3.10+, [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone git@github.com:tcondello/unlimited-ocr-archive-test.git
 cd unlimited-ocr-archive-test
 
 cp .env.example .env
-# Put your HF read token in .env so transformers can fetch the model
+# Put your HF read token in .env so transformers can fetch the models
 
 uv run unlimited_ocr_test.py          # all four docs, Gundam mode (default)
-uv run unlimited_ocr_test.py --mode base   # alternative: base single-image mode
+uv run nuextract3_test.py             # same four docs, NuExtract 3 with {"full_text": "verbatim-string"}
 uv run compare.py                     # generate outputs/comparison.md
 ```
 
-The script is per-item resumable — kill it and re-run, it picks up where it left off.
+Both scripts are per-item resumable — kill them and re-run, they pick up where they left off.
 
 ### Running on Colab without a local GPU
 
@@ -75,14 +79,22 @@ colab run --gpu T4 -- bash -c "
 
 For an opinionated `colab-hf-run` wrapper that handles HF auth and session lifecycle, see [`tcondello/uv-scripts-colab`](https://github.com/tcondello/uv-scripts-colab).
 
-## What "Unlimited-OCR" is
+## The two open-weights engines
 
-A 3-billion-parameter vision-language model from Baidu, MIT licensed, released to Hugging Face in November 2026. The pitch is "one-shot long-horizon parsing" — meaning it ingests a whole page (or multiple pages in a single call) and emits up to 32k tokens of structured text. Two modes ship with the model:
+**Unlimited-OCR.** 3 B-parameter vision-language model from Baidu, MIT-licensed, released to Hugging Face this month. The pitch is "one-shot long-horizon parsing" — it ingests a whole page (or multiple pages in a single call) and emits up to 32 k tokens of structured text. Two modes ship with the model:
 
 - **Gundam** (`base_size=1024, image_size=640, crop_mode=True`) — cropping enabled. Better for dense or large pages.
 - **Base** (`base_size=1024, image_size=1024, crop_mode=False`) — no cropping. Better for a single clean page at native resolution.
 
-Both modes are run from the same script — `--mode gundam` (default) and `--mode base`.
+Run with `--mode gundam` (default) or `--mode base`.
+
+**NuExtract 3.** NuMind's 4 B vision-language *structured extractor*, built on Qwen3.5-VL. Strictly it's not an OCR engine — you give it a JSON template and it returns structured fields. For an OCR baseline I'm calling it with the simplest possible template:
+
+```json
+{"full_text": "verbatim-string"}
+```
+
+The model returns `{"full_text": "..."}` and the script pulls that string out as the document's text. This is a slightly off-label use — NuExtract's real superpower is "extract these specific fields from this document," which is how I use it in production — but for a pure-text comparison it's a fair lift on the same GPU.
 
 ## Results
 
@@ -90,10 +102,11 @@ After the first GPU run, `outputs/comparison.md` and `outputs/summary.json` will
 
 **The interesting questions:**
 
-1. Can a 3B open-weights VLM match Claude Sonnet on handwriting? That's the only place Claude has been clearly worth its $0.04-per-3-page cost on these archives.
-2. Does it preserve column order on multi-column newsprint? Docling does because it has explicit layout analysis; pure VLMs often lose it.
-3. What's the wall-clock per page? A T4 is ~$0.30/hr; if this is fast, it's structurally cheaper than per-call API pricing.
+1. Can either 3–4 B open-weights VLM match Claude Sonnet on handwriting? That's the only place the API engine has been clearly worth its ~$0.04-per-3-page cost on these archives.
+2. Does either preserve column order on multi-column newsprint? Docling does because it has explicit layout analysis; pure VLMs often lose it.
+3. Off-label vs. on-label: how does NuExtract 3 do when you ask it for verbatim text vs. its intended structured-fields use? If it's close, you can keep one model serving two jobs.
+4. Wall-clock per page on the same T4 — which one is fastest, and is either structurally cheaper than per-call API pricing?
 
 ## License
 
-[Apache 2.0](LICENSE). The model itself is MIT-licensed by Baidu. Document sources: VVA materials are public-domain U.S. Government and personal correspondence held by the Vietnam Veterans of America archive; ASYOUWERE is a 1919 U.S. Army publication, public domain.
+[Apache 2.0](LICENSE). Models: Unlimited-OCR is MIT (Baidu); NuExtract 3 is MIT (NuMind). Document sources: VVA materials are public-domain U.S. Government and personal correspondence held by the Vietnam Veterans of America archive; ASYOUWERE is a 1919 U.S. Army publication, public domain.
