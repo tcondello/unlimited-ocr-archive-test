@@ -2,6 +2,8 @@
 
 > Putting Baidu's [Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) — a 3B vision-language model released this month — against the engines I've been using on real archival documents: NuMind's [NuExtract 3](https://huggingface.co/numind/NuExtract3) (my default open-weights extractor), plus the API-grade baselines from prior runs (Claude Sonnet 4.5 vision for Vietnam-era handwritten material, docling for newsprint).
 
+📝 **Long-form writeup, with images of the docs and the win / fail visualizations: [LINKEDIN.md](LINKEDIN.md).**
+
 Four documents, three engines per doc, one repo. Clone, run on a GPU, eyeball the diffs.
 
 ## What's in here
