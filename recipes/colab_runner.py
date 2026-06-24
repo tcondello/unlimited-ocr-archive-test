@@ -28,9 +28,13 @@ Env vars:
   REPO_URL         Override repo to clone               [tcondello/unlimited-ocr-archive-test]
   REPO_REF         Branch / tag / commit               [main]
   ENGINES          Comma-separated: "unlimited,nuextract" [unlimited,nuextract]
+  SRC              Scope to one corpus: "vva" | "asyouwere" [all]
+  MODE             Unlimited-OCR mode: "gundam" | "base"    [gundam]
 
 Usage:
   OUTPUT_DATASET=tcondello/ocr-archive-test-results \\
+  FORWARD_ENV="SRC MODE ENGINES" \\
+  COLAB_GPU=L4 \\
     bin/colab-hf-run recipes/colab_runner.py
 """
 from __future__ import annotations
@@ -195,13 +199,23 @@ def _ensure_deps() -> None:
     _run([sys.executable, "-m", "pip", "install", "-q", *OCR_DEPS])
 
 
-def _run_engine(work_dir: str, script: str) -> None:
-    print(f"\n[engine] running {script}", flush=True)
+def _run_engine(
+    work_dir: str,
+    script: str,
+    src: str | None = None,
+    mode: str | None = None,
+) -> None:
+    cmd = [sys.executable, script]
+    if src:
+        cmd.extend(["--src", src])
+    if mode and script == "unlimited_ocr_test.py":
+        cmd.extend(["--mode", mode])
+    print(f"\n[engine] running {script} {' '.join(cmd[2:]) or '(default args)'}", flush=True)
     log_path = os.path.join(
         work_dir, "outputs", "_raw", f"{script.replace('.py', '')}.log"
     )
     t0 = time.time()
-    _run([sys.executable, script], cwd=work_dir, log_path=log_path)
+    _run(cmd, cwd=work_dir, log_path=log_path)
     print(f"[engine] {script} finished in {time.time() - t0:.1f}s", flush=True)
 
 
@@ -232,6 +246,8 @@ def main() -> int:
     repo_ref = os.environ.get("REPO_REF", DEFAULT_REPO_REF).strip()
     engines_raw = os.environ.get("ENGINES", "unlimited,nuextract").strip()
     engines = [e.strip() for e in engines_raw.split(",") if e.strip()]
+    src = os.environ.get("SRC", "").strip() or None
+    mode = os.environ.get("MODE", "").strip() or None
 
     if not output_dataset:
         sys.exit("ERROR: OUTPUT_DATASET env var is required (e.g. tcondello/ocr-results).")
@@ -244,6 +260,7 @@ def main() -> int:
     print(
         f"[config] repo={repo_url}@{repo_ref}\n"
         f"[config] engines={engines}\n"
+        f"[config] src={src or 'all'}, mode={mode or 'default'}\n"
         f"[config] output={output_dataset}",
         flush=True,
     )
@@ -251,16 +268,29 @@ def main() -> int:
     _ensure_repo(repo_url, repo_ref, WORK_DIR)
     _ensure_deps()
 
-    if "unlimited" in engines:
-        _run_engine(WORK_DIR, "unlimited_ocr_test.py")
-    if "nuextract" in engines:
-        _run_engine(WORK_DIR, "nuextract3_test.py")
+    run_error: SystemExit | None = None
+    try:
+        if "unlimited" in engines:
+            _run_engine(WORK_DIR, "unlimited_ocr_test.py", src=src, mode=mode)
+        if "nuextract" in engines:
+            _run_engine(WORK_DIR, "nuextract3_test.py", src=src)
 
-    print("\n[compare] building outputs/comparison.md", flush=True)
-    _run([sys.executable, "compare.py"], cwd=WORK_DIR)
+        print("\n[compare] building outputs/comparison.md", flush=True)
+        _run([sys.executable, "compare.py"], cwd=WORK_DIR)
+    except SystemExit as e:
+        run_error = e
+        print(
+            f"\n[partial] engine run failed: {e}\n"
+            f"[partial] uploading whatever's in outputs/ so the work isn't lost.",
+            flush=True,
+        )
 
     url = _upload_outputs(WORK_DIR, output_dataset, hf_token)
-    print(f"\nDone. Outputs at {url}", flush=True)
+    print(f"\nUploaded outputs to {url}", flush=True)
+
+    if run_error is not None:
+        raise run_error
+    print("\nDone.", flush=True)
     return 0
 
 
