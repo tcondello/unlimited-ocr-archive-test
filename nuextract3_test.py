@@ -155,10 +155,23 @@ def run_one_pdf(pdf_path: Path, processor, model, dpi: int) -> dict:
     page_raws: list[str] = []
     t0 = time.time()
 
+    # Cap the longest edge so a 300-DPI tabloid page (3000+px) doesn't OOM
+    # the T4 vision encoder. Qwen3.5-VL handles variable input sizes; the
+    # processor will further bucket by patch size. 1280 is a reasonable
+    # compromise between detail retention and VRAM headroom (~10 GB model
+    # + activation slack on a 16 GB T4).
+    MAX_EDGE = 1280
+
     for idx, page_path in enumerate(pages, 1):
         img = Image.open(page_path)
         if img.mode != "RGB":
             img = img.convert("RGB")
+        if max(img.size) > MAX_EDGE:
+            ratio = MAX_EDGE / max(img.size)
+            img = img.resize(
+                (int(img.size[0] * ratio), int(img.size[1] * ratio)),
+                Image.LANCZOS,
+            )
 
         messages = [{"role": "user", "content": [{"type": "image", "image": img}]}]
         inputs = processor.apply_chat_template(
@@ -188,6 +201,10 @@ def run_one_pdf(pdf_path: Path, processor, model, dpi: int) -> dict:
         page_raws.append(response)
         page_texts.append(parse_full_text(response))
         print(f"    page {idx}/{len(pages)} done", flush=True)
+
+        # Free per-page activations so the next page doesn't OOM on T4
+        del inputs, generated, trimmed
+        torch.cuda.empty_cache()
 
     elapsed = time.time() - t0
 

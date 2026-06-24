@@ -122,16 +122,32 @@ Run with `--mode gundam` (default) or `--mode base`.
 
 The model returns `{"full_text": "..."}` and the script pulls that string out as the document's text. This is a slightly off-label use — NuExtract's real superpower is "extract these specific fields from this document," which is how I use it in production — but for a pure-text comparison it's a fair lift on the same GPU.
 
-## Results
+## Results (first run — VVA only, Colab T4)
 
-After the first GPU run, `outputs/comparison.md` and `outputs/summary.json` will be committed alongside the script. I'll update this section with the headline numbers and a few honest observations once I've eyeballed the diffs myself — including where Unlimited-OCR shows up the existing baselines and where it doesn't.
+| Doc | Engine | chars | wall (s) | cost |
+|---|---|---:|---:|---:|
+| `vva/23930102001.pdf` (3-page typed letter, 1968) | Claude Sonnet 4.5 vision | 5157 | 56.7 | ~$0.04 |
+| | **Unlimited-OCR (Gundam)** | **5121** | **58.9** | **$0 (T4)** |
+| `vva/2710101001.pdf` (handwritten postcard, 1966) | Claude Sonnet 4.5 vision | 794 | 12.7 | ~$0.014 |
+| | Unlimited-OCR (Gundam) | 6 (`<PAGE>`) | 7.2 | $0 (T4) |
 
-**The interesting questions:**
+**Headline finding — the typed letter.** On a dense 3-page Vietnam-era typewritten letter, a 3 B open-weights VLM matched Claude character-for-character (5121 vs 5157, a 36-char difference over ~5 KB of prose) at effectively identical wall-clock and zero API cost. The opening sentence is byte-identical between the two engines: *"Dear Mama, Today Johnson announced his plan for the war - and I sit here shaking in my boots!"*
 
-1. Can either 3–4 B open-weights VLM match Claude Sonnet on handwriting? That's the only place the API engine has been clearly worth its ~$0.04-per-3-page cost on these archives.
-2. Does either preserve column order on multi-column newsprint? Docling does because it has explicit layout analysis; pure VLMs often lose it.
-3. Off-label vs. on-label: how does NuExtract 3 do when you ask it for verbatim text vs. its intended structured-fields use? If it's close, you can keep one model serving two jobs.
-4. Wall-clock per page on the same T4 — which one is fastest, and is either structurally cheaper than per-call API pricing?
+**The asymmetry — the handwritten postcard.** Unlimited-OCR in Gundam mode emitted only `<PAGE>` for the postcard. The model didn't even draw bounding boxes (no `result_with_boxes_*.jpg` was produced in the audit artifacts), so this isn't a parsing bug — it's the model failing to detect any text regions on the cursive ballpoint. Claude has been my workaround for this exact failure mode on this archive; that asymmetry hasn't gone away.
+
+What this means in practice for the kind of archive work this repo grew out of: you can serve the typed correspondence with a 3 B local model and reserve the API engine for the handwritten material. Routing by document type matters more than picking one engine for everything.
+
+**Still pending in this repo:**
+- NuExtract 3 hit `CUDA OutOfMemoryError` on the T4 (4 B fp16 + 300 DPI page images blew past 16 GB). Fix: shrink the rasterised page before sending to the vision encoder. Rerun coming.
+- The two ASYOUWERE newspapers (1919, multi-column) haven't been processed yet — Unlimited-OCR was running ~6 minutes per page on T4 (no hardware bf16) and saturating the Colab WebSocket. Need to either swap to a beefier GPU or chunk per-page.
+- Trying Unlimited-OCR's `--mode base` on the postcard to see whether the failure is mode-specific or a true blind spot.
+
+The interesting questions, restated as falsifiable claims for the rerun:
+
+1. Can a 3–4 B open-weights VLM match Claude Sonnet on handwriting? **Answer so far: no, not Unlimited-OCR in Gundam mode.** NuExtract 3 still untested.
+2. Does either preserve column order on multi-column newsprint? **TBD — ASYOUWERE not yet processed.**
+3. Off-label vs on-label NuExtract 3: when you ask it for `{"full_text": "verbatim-string"}` instead of a real schema, is it competitive? **TBD — OOM'd on first attempt.**
+4. Wall-clock vs API pricing on the same T4: **for the typed letter, Unlimited-OCR is structurally cheaper than Claude at zero quality cost.** Cost crossover entirely on the postcard failure mode.
 
 ## License
 

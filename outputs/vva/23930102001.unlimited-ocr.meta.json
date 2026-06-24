@@ -1,0 +1,9 @@
+{
+  "model": "baidu/Unlimited-OCR",
+  "mode": "gundam",
+  "n_pages": 3,
+  "dpi": 300,
+  "elapsed_s": 58.92,
+  "char_count": 5121,
+  "source_pdf": "docs/vva/23930102001.pdf"
+}

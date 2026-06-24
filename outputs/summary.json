@@ -1,0 +1,24 @@
+[
+  {
+    "src": "vva",
+    "stem": "23930102001",
+    "model": "baidu/Unlimited-OCR",
+    "mode": "gundam",
+    "n_pages": 3,
+    "dpi": 300,
+    "elapsed_s": 58.92,
+    "char_count": 5121,
+    "source_pdf": "docs/vva/23930102001.pdf"
+  },
+  {
+    "src": "vva",
+    "stem": "2710101001",
+    "model": "baidu/Unlimited-OCR",
+    "mode": "gundam",
+    "n_pages": 2,
+    "dpi": 300,
+    "elapsed_s": 7.2,
+    "char_count": 6,
+    "source_pdf": "docs/vva/2710101001.pdf"
+  }
+]
