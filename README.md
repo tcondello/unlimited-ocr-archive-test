@@ -72,14 +72,14 @@ git clone git@github-personal:tcondello/uv-scripts-colab.git ~/Code/uv-scripts-c
 # 1. Kick off the bake-off on a Colab T4. Recipe clones this repo on the
 #    VM, runs both engines (Unlimited-OCR + NuExtract 3) as subprocesses
 #    so each model loads on a fresh VRAM slate, then pushes outputs/
-#    back as an HF dataset.
-OUTPUT_DATASET=tcondello/ocr-archive-test-results \
+#    back as an HF dataset.  Use whatever namespace your HF token writes to.
+OUTPUT_DATASET=Tim-Pinecone/unlimited-ocr-archive-test \
     ~/Code/uv-scripts-colab/bin/colab-hf-run recipes/colab_runner.py
 
 # 2. Pull those outputs into ./outputs locally so you can diff, commit, etc.
 git clone git@github-personal:tcondello/unlimited-ocr-archive-test.git
 cd unlimited-ocr-archive-test
-HF_DATASET=tcondello/ocr-archive-test-results uv run scripts/pull_results.py
+HF_DATASET=Tim-Pinecone/unlimited-ocr-archive-test uv run scripts/pull_results.py
 ```
 
 Overrides on the recipe (all forwarded by `colab-hf-run` once you list them in `FORWARD_ENV`):

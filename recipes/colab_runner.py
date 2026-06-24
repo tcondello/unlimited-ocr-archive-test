@@ -48,25 +48,36 @@ DEFAULT_REPO_URL = "https://github.com/tcondello/unlimited-ocr-archive-test"
 DEFAULT_REPO_REF = "main"
 WORK_DIR = "/content/unlimited-ocr-archive-test"
 
-OCR_DEPS = [
+# The two engines need DIFFERENT transformers versions:
+#   - Unlimited-OCR's bundled modeling imports `is_torch_fx_available`, which
+#     was removed after 4.57.x → must pin to 4.57.1.
+#   - NuExtract 3 is built on Qwen3.5-VL — the `qwen3_5` architecture only
+#     exists in transformers newer than 4.57.x → must use latest.
+# So we install just-in-time per engine and let the second engine upgrade
+# transformers in place.
+
+UNLIMITED_DEPS = [
     "torch>=2.4",
     "torchvision",
-    # Unlimited-OCR's bundled modeling code is written against transformers
-    # 4.57.1 — newer versions removed `is_torch_fx_available`. Pin exactly
-    # to match the model card; relax only if a later release re-adds that
-    # symbol or the model bumps its expected transformers.
     "transformers==4.57.1",
     "accelerate>=0.30",
     "Pillow",
     "pymupdf",
     "python-dotenv",
     # Unlimited-OCR's custom modeling code (trust_remote_code=True) imports
-    # these directly; they're listed in the model-card requirements.txt.
+    # these directly; listed in the model card's requirements.txt.
     "addict",
     "easydict",
     "einops",
     "matplotlib",
     "psutil",
+]
+
+# Reinstall a fresh transformers for NuExtract 3 + helpers it needs.
+NUEXTRACT_DEPS = [
+    "transformers",  # latest — recognises qwen3_5 / Qwen3.5-VL
+    "qwen-vl-utils",
+    "accelerate>=0.30",
 ]
 
 
@@ -178,25 +189,26 @@ def _ensure_repo(repo_url: str, repo_ref: str, work_dir: str) -> None:
     _run(["git", "clone", "--depth", "1", "--branch", repo_ref, repo_url, work_dir])
 
 
-def _ensure_deps() -> None:
-    """pip-install the OCR scripts' dependencies into the Colab kernel."""
-    # Probe via subprocess so we don't pin stale modules into sys.modules
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import torch, transformers, accelerate, fitz, PIL, dotenv, "
-            "addict, easydict, einops, matplotlib, psutil",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if probe.returncode == 0:
-        print("[setup] OCR deps already present.", flush=True)
-        return
+def _pip_install(pkgs: list[str], upgrade: bool = False) -> None:
+    args = [sys.executable, "-m", "pip", "install", "-q"]
+    if upgrade:
+        args.append("-U")
+    args.extend(pkgs)
+    _run(args)
 
-    print("[setup] installing OCR deps...", flush=True)
-    _run([sys.executable, "-m", "pip", "install", "-q", *OCR_DEPS])
+
+def _ensure_unlimited_deps() -> None:
+    print("\n[deps] installing Unlimited-OCR deps (transformers==4.57.1)", flush=True)
+    _pip_install(UNLIMITED_DEPS)
+
+
+def _ensure_nuextract_deps() -> None:
+    print(
+        "\n[deps] upgrading transformers + installing NuExtract 3 helpers "
+        "(transformers latest, qwen-vl-utils)",
+        flush=True,
+    )
+    _pip_install(NUEXTRACT_DEPS, upgrade=True)
 
 
 def _run_engine(
@@ -266,13 +278,14 @@ def main() -> int:
     )
 
     _ensure_repo(repo_url, repo_ref, WORK_DIR)
-    _ensure_deps()
 
     run_error: SystemExit | None = None
     try:
         if "unlimited" in engines:
+            _ensure_unlimited_deps()
             _run_engine(WORK_DIR, "unlimited_ocr_test.py", src=src, mode=mode)
         if "nuextract" in engines:
+            _ensure_nuextract_deps()
             _run_engine(WORK_DIR, "nuextract3_test.py", src=src)
 
         print("\n[compare] building outputs/comparison.md", flush=True)
