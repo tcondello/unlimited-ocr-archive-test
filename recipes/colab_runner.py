@@ -66,31 +66,101 @@ OCR_DEPS = [
 ]
 
 
-def _run(cmd: list[str], cwd: str | None = None, check: bool = True) -> int:
-    """Run a command, streaming stdout/stderr line-by-line, returning the exit code.
+def _run(
+    cmd: list[str],
+    cwd: str | None = None,
+    check: bool = True,
+    log_path: str | None = None,
+) -> int:
+    """Run a command and return the exit code.
 
-    Colab's IPython kernel doesn't reliably surface a subprocess's inherited
-    stdout/stderr, so we pipe explicitly and forward each line. This keeps
-    OCR-script progress and tracebacks visible in the colab-hf-run stream.
+    Two modes:
+
+    * Default (log_path=None) — pipe stdout/stderr live, line-by-line. Good
+      for `git clone`, `pip install`, `compare.py` — short, low-volume.
+
+    * Quiet mode (log_path set) — redirect stdout/stderr to a file inside
+      the workdir, print a heartbeat every 30 s with the latest log line.
+      Use for the OCR engines, which spam token-level decode output (e.g.
+      Unlimited-OCR emits `<|det|>...<|/det|>` per token). Without this,
+      the Colab kernel's WebSocket gets saturated and drops the connection
+      mid-run, killing the whole session.
     """
     print(f"\n$ {' '.join(cmd)}", flush=True)
-    proc = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        bufsize=1,
-        text=True,
-    )
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        print(line, end="", flush=True)
-    proc.wait()
+
+    if log_path is None:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            text=True,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+        proc.wait()
+    else:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        print(f"   [quiet mode — logging to {log_path}]", flush=True)
+        log_file = open(log_path, "wb")
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        t0 = time.time()
+        last_beat = t0
+        try:
+            while proc.poll() is None:
+                time.sleep(2)
+                now = time.time()
+                if now - last_beat >= 30:
+                    tail = _tail_last_line(log_path)
+                    print(
+                        f"   [t+{int(now - t0)}s] last log: {tail[:140]}",
+                        flush=True,
+                    )
+                    last_beat = now
+        finally:
+            log_file.close()
+
     if check and proc.returncode != 0:
+        if log_path and os.path.exists(log_path):
+            print(f"\n--- tail of {log_path} (failure) ---", flush=True)
+            try:
+                with open(log_path, errors="replace") as f:
+                    lines = f.readlines()[-60:]
+                for ln in lines:
+                    print(ln, end="", flush=True)
+            except OSError:
+                pass
         raise SystemExit(
             f"command failed (exit {proc.returncode}): {' '.join(cmd)}"
         )
     return proc.returncode
+
+
+def _tail_last_line(path: str) -> str:
+    """Return the last non-empty line of a file, robust to partial flushes."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            chunk = min(8192, size)
+            if chunk == 0:
+                return ""
+            f.seek(-chunk, 2)
+            data = f.read(chunk)
+        text = data.decode(errors="replace").rstrip()
+        for line in reversed(text.splitlines()):
+            if line.strip():
+                return line
+        return ""
+    except OSError:
+        return ""
 
 
 def _ensure_repo(repo_url: str, repo_ref: str, work_dir: str) -> None:
@@ -127,8 +197,11 @@ def _ensure_deps() -> None:
 
 def _run_engine(work_dir: str, script: str) -> None:
     print(f"\n[engine] running {script}", flush=True)
+    log_path = os.path.join(
+        work_dir, "outputs", "_raw", f"{script.replace('.py', '')}.log"
+    )
     t0 = time.time()
-    _run([sys.executable, script], cwd=work_dir)
+    _run([sys.executable, script], cwd=work_dir, log_path=log_path)
     print(f"[engine] {script} finished in {time.time() - t0:.1f}s", flush=True)
 
 
