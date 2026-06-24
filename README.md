@@ -23,6 +23,10 @@ unlimited_ocr_test.py                    # Runs Unlimited-OCR over docs/, writes
 nuextract3_test.py                       # Runs NuExtract 3 over docs/, writes outputs/
 compare.py                               # Builds outputs/comparison.md from baselines/ + outputs/
 
+recipes/colab_runner.py                  # Self-runner for tcondello/uv-scripts-colab — clones repo
+                                         # on a Colab VM, runs both engines, pushes outputs/ as HF dataset
+scripts/pull_results.py                  # Local: pulls the recipe's HF dataset back into ./outputs/
+
 outputs/                                 # Populated by the two test scripts
   vva/*.unlimited-ocr.{txt,meta.json}
   vva/*.nuextract3.{txt,meta.json}
@@ -46,9 +50,46 @@ The point isn't to score one engine as "best." It's to see where each one breaks
 
 The Vietnam-era docs come from a [larger archive-OCR pipeline](https://github.com/tcondello) I've been running for retrieval; the 1919 newspapers come from a separate project doing the same exercise on a different corpus. Both already had OCR ground truth from prior engines — Claude vision for the Vietnam docs (the only thing that handled the handwriting well), docling for the newspapers (the multi-column layout broke the simpler engines).
 
-## Run it
+## Run it — the canonical path (no local GPU required)
 
-**Requirements:** NVIDIA GPU (Colab T4 is enough — Unlimited-OCR is 3B BF16, NuExtract 3 is 4B and runs in fp16 on T4), Python 3.10+, [uv](https://docs.astral.sh/uv/).
+This repo ships with a Colab recipe at [`recipes/colab_runner.py`](recipes/colab_runner.py). Pair it with [`tcondello/uv-scripts-colab`](https://github.com/tcondello/uv-scripts-colab)'s `colab-hf-run` wrapper and the whole bake-off rides on a managed T4 (or whatever flavor you set) — no local GPU, no Colab notebook, no copy-paste.
+
+**One-time setup** (machine you're driving the wrapper from):
+
+```bash
+# Install uv + the Colab CLI, log in once each
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install google-colab-cli
+hf auth login          # write-scoped token; the wrapper reads ~/.cache/huggingface/token
+
+# Clone uv-scripts-colab to get bin/colab-hf-run
+git clone git@github-personal:tcondello/uv-scripts-colab.git ~/Code/uv-scripts-colab
+```
+
+**Round-trip — run on Colab, pull results locally:**
+
+```bash
+# 1. Kick off the bake-off on a Colab T4. Recipe clones this repo on the
+#    VM, runs both engines (Unlimited-OCR + NuExtract 3) as subprocesses
+#    so each model loads on a fresh VRAM slate, then pushes outputs/
+#    back as an HF dataset.
+OUTPUT_DATASET=tcondello/ocr-archive-test-results \
+    ~/Code/uv-scripts-colab/bin/colab-hf-run recipes/colab_runner.py
+
+# 2. Pull those outputs into ./outputs locally so you can diff, commit, etc.
+git clone git@github-personal:tcondello/unlimited-ocr-archive-test.git
+cd unlimited-ocr-archive-test
+HF_DATASET=tcondello/ocr-archive-test-results uv run scripts/pull_results.py
+```
+
+Overrides on the recipe (all forwarded by `colab-hf-run` once you list them in `FORWARD_ENV`):
+- `REPO_URL` / `REPO_REF` — point at a fork or a feature branch
+- `ENGINES=unlimited` or `ENGINES=nuextract` — run only one
+- `COLAB_GPU=L4` (or `A100`, `H100`) — beefier GPU for the NuExtract 3 step
+
+## Run it — local (if you already have a CUDA box)
+
+**Requirements:** NVIDIA GPU (Unlimited-OCR is 3B BF16, NuExtract 3 is 4B and runs in fp16 on T4), Python 3.10+, [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone git@github.com:tcondello/unlimited-ocr-archive-test.git
@@ -63,21 +104,6 @@ uv run compare.py                     # generate outputs/comparison.md
 ```
 
 Both scripts are per-item resumable — kill them and re-run, they pick up where they left off.
-
-### Running on Colab without a local GPU
-
-The script is a [PEP 723](https://peps.python.org/pep-0723/) single file. To run it on a managed Colab GPU using the [Colab CLI](https://github.com/googlecolab/google-colab-cli):
-
-```bash
-# Easiest: clone this repo on the Colab VM
-colab run --gpu T4 -- bash -c "
-  git clone https://github.com/tcondello/unlimited-ocr-archive-test &&
-  cd unlimited-ocr-archive-test &&
-  uv run unlimited_ocr_test.py
-"
-```
-
-For an opinionated `colab-hf-run` wrapper that handles HF auth and session lifecycle, see [`tcondello/uv-scripts-colab`](https://github.com/tcondello/uv-scripts-colab).
 
 ## The two open-weights engines
 

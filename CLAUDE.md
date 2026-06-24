@@ -37,12 +37,25 @@ outputs/summary_nuextract3.json        # NuExtract 3 summary
 
 ## Hard constraints
 
-- **CUDA required** — Unlimited-OCR is BF16 on NVIDIA. The script exits 1 on a
-  Mac. To run from this Mac, push to GitHub and run on Colab/EC2/RunPod.
+- **CUDA required** — both Unlimited-OCR (3 B BF16) and NuExtract 3 (4 B, fp16
+  on T4 / bf16 on Ampere+) need NVIDIA. The scripts exit 1 on a Mac.
 - **Per-item resumable** — outputs are checked before each PDF is rasterised.
   Add `--force` to re-run.
 - **Live progress** — every doc prints start + finish with elapsed time. No
   silent multi-minute waits.
+
+## Running on Colab via uv-scripts-colab
+
+`recipes/colab_runner.py` is the canonical run path — sits on top of
+`tcondello/uv-scripts-colab`'s `bin/colab-hf-run` wrapper. The recipe clones
+this repo onto the Colab VM, runs both engines as subprocesses (clean VRAM
+between models), runs `compare.py`, and pushes the resulting `outputs/`
+directory to an HF dataset via `HfApi().upload_folder(...)`.
+
+`scripts/pull_results.py` is the round-trip's other half — `snapshot_download`s
+the dataset and copies the files back under `./outputs/`.
+
+This is the documented LinkedIn-shareable flow; no local GPU required.
 
 ## Environment Setup
 
